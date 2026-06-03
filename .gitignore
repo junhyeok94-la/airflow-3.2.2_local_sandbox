@@ -1,0 +1,29 @@
+# Git Ignore rules for Local Airflow 3.2 Sandbox
+
+# Environment variables & secrets
+.env
+.env.*
+.env.local
+
+# Airflow logs and configs
+logs/
+config/airflow.cfg
+airflow.cfg
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+venv/
+env/
+
+# IDE files
+.idea/
+.vscode/
+
+# Local databases / volumes if any
+postgres-db-volume/
+postgres_data/
