@@ -3,7 +3,7 @@ from airflow.sdk import dag, task, Asset
 from airflow.providers.common.sql.hooks.sql import DbApiHook
 
 # 1. dbt 변환이 완료될 최종 ClickHouse 매출 마트 테이블을 상위 핵심 자산(Asset)으로 등록
-CLICKHOUSE_ORDER_MART_ASSET = Asset(uri="clickhouse://default/fact_orders_hourly")
+CLICKHOUSE_ORDER_GOLD_ASSET = Asset(uri="clickhouse://default/fact_orders_hourly")
 
 # [DAG 1] 15분 주기 주기적 배치 파이프라인 (인프라 안정성 확보)
 @dag(
@@ -15,7 +15,7 @@ CLICKHOUSE_ORDER_MART_ASSET = Asset(uri="clickhouse://default/fact_orders_hourly
 )
 def batch_dw_transform():
     
-    @task(task_id="execute_dbt_marts", outlets=[CLICKHOUSE_ORDER_MART_ASSET])
+    @task(task_id="execute_dbt_gold", outlets=[CLICKHOUSE_ORDER_GOLD_ASSET])
     def run_dbt_transform():
         # clickhouse_desktop 커넥션을 이용해 SQL 실행
         # (실제 dbt run 연동 쿼리를 모방한 SELECT 1 실행)
@@ -32,7 +32,7 @@ batch_dw_transform()
 # [DAG 2] 데이터가 갱신되었을 때만 유기적으로 반응하는 이벤트 기반 다운스트림 (Data-Aware)
 @dag(
     dag_id="reactive_stock_alert_pipeline",
-    schedule=[CLICKHOUSE_ORDER_MART_ASSET],
+    schedule=[CLICKHOUSE_ORDER_GOLD_ASSET],
     start_date=datetime(2026, 1, 1),
     catchup=False,
     tags=["ecommerce", "alert"]
