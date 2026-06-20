@@ -20,6 +20,10 @@ RUN pip install --no-cache-dir \
     psycopg2-binary \
     pandas \
     sqlalchemy \
-    requests
+    requests \
+    dbt-core~=1.10.0 \
+    dbt-clickhouse~=1.10.0 \
+    clickhouse-connect \
+    astronomer-cosmos
 
 WORKDIR /opt/airflow

@@ -1,6 +1,17 @@
 from datetime import datetime
+import sys
+import os
 from airflow.sdk import dag, task, Asset
 from airflow.providers.common.sql.hooks.sql import DbApiHook
+from cosmos import DbtTaskGroup
+
+from plugins.dbt_common_config import (
+    get_profile_config,
+    get_project_config,
+    get_execution_config,
+    get_render_config,
+    get_operator_args
+)
 
 # 1. dbt 변환이 완료될 최종 ClickHouse 매출 마트 테이블을 상위 핵심 자산(Asset)으로 등록
 CLICKHOUSE_ORDER_GOLD_ASSET = Asset(uri="clickhouse://default/fact_orders_hourly")
@@ -15,16 +26,25 @@ CLICKHOUSE_ORDER_GOLD_ASSET = Asset(uri="clickhouse://default/fact_orders_hourly
 )
 def batch_dw_transform():
     
-    @task(task_id="execute_dbt_gold", outlets=[CLICKHOUSE_ORDER_GOLD_ASSET])
-    def run_dbt_transform():
-        # clickhouse_desktop 커넥션을 이용해 SQL 실행
-        # (실제 dbt run 연동 쿼리를 모방한 SELECT 1 실행)
-        hook = DbApiHook.get_hook_by_conn_id("clickhouse_desktop")
-        sql = "SELECT 1;"
-        hook.run(sql)
-        print("ClickHouse dbt transform simulator executed successfully.")
+    @task(task_id="start")
+    def start_task():
+        print("ClickHouse dbt transform pipeline started.")
         
-    run_dbt_transform()
+    @task(task_id="end", outlets=[CLICKHOUSE_ORDER_GOLD_ASSET])
+    def end_task():
+        print("ClickHouse dbt transform pipeline finished. Gold Asset emitted.")
+    
+    # Cosmos DbtTaskGroup 정의
+    dbt_tasks = DbtTaskGroup(
+        group_id="dbt_tasks",
+        project_config=get_project_config(),
+        profile_config=get_profile_config(),
+        execution_config=get_execution_config(),
+        render_config=get_render_config(),
+        operator_args=get_operator_args()
+    )
+    
+    start_task() >> dbt_tasks >> end_task()
 
 batch_dw_transform()
 
