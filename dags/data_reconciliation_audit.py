@@ -27,9 +27,9 @@ def data_reconciliation_audit_dag():
         # 2. Postgres Hook을 이용한 데이터 조회
         pg_hook = DbApiHook.get_hook_by_conn_id("postgres_desktop")
         pg_query = """
-            SELECT COALESCE(SUM(total_price), 0) 
-            FROM orders 
-            WHERE created_at >= %s AND created_at < %s;
+            SELECT COALESCE(SUM(price), 0) 
+            FROM olist_order_items 
+            WHERE shipping_limit_date >= %s AND shipping_limit_date < %s;
         """
         pg_result = pg_hook.get_first(pg_query, parameters=(start_time, end_time))
         pg_sum = float(pg_result[0]) if pg_result else 0.0
@@ -37,9 +37,9 @@ def data_reconciliation_audit_dag():
         # 3. ClickHouse Hook을 이용한 데이터 조회 (FINAL 제어어 사용)
         ch_hook = DbApiHook.get_hook_by_conn_id("clickhouse_desktop")
         ch_query = """
-            SELECT COALESCE(SUM(total_price), 0) 
-            FROM default.stg_orders FINAL 
-            WHERE toDateTime64(ts_ms/1000, 3) >= %s AND toDateTime64(ts_ms/1000, 3) < %s;
+            SELECT COALESCE(SUM(price), 0) 
+            FROM default.stg_olist_order_items FINAL 
+            WHERE shipping_limit_date >= %s AND shipping_limit_date < %s;
         """
         ch_result = ch_hook.get_first(
             ch_query, 

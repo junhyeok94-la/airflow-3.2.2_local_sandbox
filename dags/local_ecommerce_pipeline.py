@@ -14,7 +14,7 @@ from plugins.dbt_common_config import (
 )
 
 # 1. dbt 변환이 완료될 최종 ClickHouse 매출 마트 테이블을 상위 핵심 자산(Asset)으로 등록
-CLICKHOUSE_ORDER_GOLD_ASSET = Asset(uri="clickhouse://default/fact_orders_hourly")
+CLICKHOUSE_ORDER_GOLD_ASSET = Asset(uri="clickhouse://default/mart_daily_sales_wide")
 
 # [DAG 1] 15분 주기 주기적 배치 파이프라인 (인프라 안정성 확보)
 @dag(
@@ -63,10 +63,12 @@ def reactive_stock_alert():
     def check_stock_leak():
         hook = DbApiHook.get_hook_by_conn_id("clickhouse_desktop")
         sql = """
-            -- 품목별 최근 누적 주문량을 집계하여 재고 경보 대상 탐색
-            SELECT product_id, sum(quantity) AS total_ordered 
-            FROM default.fact_orders_hourly 
-            GROUP BY product_id;
+            -- 품목별 최근 누적 주문량을 집계하여 재고 경보 대상 탐색 (Olist 스펙에 맞춰 수정)
+            SELECT product_id, count(order_item_id) AS total_ordered 
+            FROM default.fact_orders FINAL
+            GROUP BY product_id
+            ORDER BY total_ordered DESC
+            LIMIT 10;
         """
         records = hook.get_records(sql)
         for row in records:
