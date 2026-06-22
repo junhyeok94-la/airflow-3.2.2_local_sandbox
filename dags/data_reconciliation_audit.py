@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 import logging
 from airflow.sdk import dag, task, get_current_context
-from airflow.providers.common.sql.hooks.sql import DbApiHook
+from airflow.hooks.base import BaseHook
 
 logger = logging.getLogger(__name__)
 
@@ -16,16 +16,18 @@ def data_reconciliation_audit_dag():
 
     @task(task_id="run_postgres_clickhouse_audit")
     def reconcile_postgres_vs_clickhouse():
-        # 1. get_current_context()를 통한 안전한 콘텍스트 접근
         context = get_current_context()
-        execution_date = context["data_interval_end"]
-        start_time = execution_date - timedelta(days=1)
-        end_time = execution_date
+        # 3.x 호환 및 수동 트리거 에러 방지를 위해 방어적 context 획득
+        execution_date = context.get("logical_date") or context.get("execution_date") or datetime.utcnow()
+        
+        # Olist 데이터셋 대역(2017~2018년)을 포함하여 전체 복사 무결성을 점검하도록 조회 범위 설정
+        start_time = datetime(2016, 1, 1)
+        end_time = datetime(2027, 1, 1)
 
         logger.info(f"정합성 대조 검증 수행 대역: {start_time} ~ {end_time}")
 
-        # 2. Postgres Hook을 이용한 데이터 조회
-        pg_hook = DbApiHook.get_hook_by_conn_id("postgres_desktop")
+        # 2. Postgres Hook을 이용한 데이터 조회 (BaseHook.get_hook 활용)
+        pg_hook = BaseHook.get_hook("postgres_desktop")
         pg_query = """
             SELECT COALESCE(SUM(price), 0) 
             FROM olist_order_items 
@@ -34,18 +36,27 @@ def data_reconciliation_audit_dag():
         pg_result = pg_hook.get_first(pg_query, parameters=(start_time, end_time))
         pg_sum = float(pg_result[0]) if pg_result else 0.0
 
-        # 3. ClickHouse Hook을 이용한 데이터 조회 (FINAL 제어어 사용)
-        ch_hook = DbApiHook.get_hook_by_conn_id("clickhouse_desktop")
-        ch_query = """
-            SELECT COALESCE(SUM(price), 0) 
-            FROM default.stg_olist_order_items FINAL 
-            WHERE shipping_limit_date >= %s AND shipping_limit_date < %s;
-        """
-        ch_result = ch_hook.get_first(
-            ch_query, 
-            parameters=(start_time.strftime("%Y-%m-%d %H:%M:%S"), end_time.strftime("%Y-%m-%d %H:%M:%S"))
+        # 3. ClickHouse 연결 (generic hook 대신 clickhouse_connect 직접 사용)
+        import clickhouse_connect
+        ch_conn = BaseHook.get_connection("clickhouse_desktop")
+        ch_client = clickhouse_connect.get_client(
+            host=ch_conn.host or 'ecommerce-clickhouse',
+            port=int(ch_conn.port) if ch_conn.port else 8123,
+            username=ch_conn.login or 'default',
+            password=ch_conn.password or '',
+            database=ch_conn.schema or 'default'
         )
-        ch_sum = float(ch_result[0]) if ch_result else 0.0
+        ch_query = f"""
+            SELECT COALESCE(SUM(price), 0) 
+            FROM analytics_silver.fact_orders FINAL 
+            WHERE shipping_limit_date >= '{start_time.strftime("%Y-%m-%d %H:%M:%S")}' 
+              AND shipping_limit_date < '{end_time.strftime("%Y-%m-%d %H:%M:%S")}'
+        """
+
+
+        ch_result = ch_client.query(ch_query)
+        ch_sum = float(ch_result.result_rows[0][0]) if ch_result.result_rows else 0.0
+
 
         logger.info(f"[Audit 결과] PostgreSQL SUM: {pg_sum} USD | ClickHouse SUM: {ch_sum} USD")
 

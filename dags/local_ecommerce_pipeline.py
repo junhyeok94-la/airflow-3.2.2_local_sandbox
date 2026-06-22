@@ -61,7 +61,8 @@ def reactive_stock_alert():
 
     @task(task_id="detect_low_stock_and_notify")
     def check_stock_leak():
-        hook = DbApiHook.get_hook_by_conn_id("clickhouse_desktop")
+        from airflow.hooks.base import BaseHook
+        hook = BaseHook.get_hook("clickhouse_desktop")
         sql = """
             -- 품목별 최근 누적 주문량을 집계하여 재고 경보 대상 탐색 (Olist 스펙에 맞춰 수정)
             SELECT product_id, count(order_item_id) AS total_ordered 
