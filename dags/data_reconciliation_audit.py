@@ -1,12 +1,25 @@
 from datetime import datetime, timedelta
 import logging
+from pathlib import Path
 from airflow.sdk import dag, task, get_current_context
 from airflow.hooks.base import BaseHook
 
 logger = logging.getLogger(__name__)
 
+# 파일명에서 dag_id 동적 추출
+DAG_ID = Path(__file__).stem
+
 @dag(
-    dag_id="data_reconciliation_audit",
+    dag_id=DAG_ID,
+    doc_md="""
+    ### 데이터 정합성 대조 검증 파이프라인 (Data Reconciliation Audit)
+    원천 데이터베이스(PostgreSQL)의 누적 매출 합계와 데이터 웨어하우스(ClickHouse Silver 계층)의 매출 합계를 주기적으로 비교 검증합니다.
+    
+    * **실행 스케줄**: 매일 새벽 2시 (Daily Audit)
+    * **주요 검증 범위**: Olist 전체 수집 대역 (2016년 ~ 2027년)
+    * **정합성 룰**: PostgreSQL과 ClickHouse 간의 금액 차이가 0.01 USD 이하일 것 (오차율 0.01% 이내)
+    * **에러 제어**: 검증 실패 시 ValueError를 발생시켜 태스크를 Fail 처리하고 알람을 트리거합니다.
+    """,
     schedule="0 2 * * *",  # 매일 새벽 2시 실행 (일별 배치 감사)
     start_date=datetime(2026, 1, 1),
     catchup=False,

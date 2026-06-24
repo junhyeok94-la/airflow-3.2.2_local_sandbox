@@ -1,8 +1,6 @@
 from datetime import datetime
-import sys
-import os
+from pathlib import Path
 from airflow.sdk import dag, task, Asset
-from airflow.providers.common.sql.hooks.sql import DbApiHook
 from cosmos import DbtTaskGroup
 
 from plugins.dbt_common_config import (
@@ -13,12 +11,24 @@ from plugins.dbt_common_config import (
     get_operator_args
 )
 
+# 파일명에서 dag_id 동적 파싱
+DAG_ID = Path(__file__).stem
+
 # 1. dbt 변환이 완료될 최종 ClickHouse 매출 마트 테이블을 상위 핵심 자산(Asset)으로 등록
 CLICKHOUSE_ORDER_GOLD_ASSET = Asset(uri="clickhouse://default/mart_daily_sales_wide")
 
 # [DAG 1] 15분 주기 주기적 배치 파이프라인 (인프라 안정성 확보)
 @dag(
-    dag_id="batch_15min_dw_transform",
+    dag_id=DAG_ID,
+    doc_md="""
+    ### 15분 마이크로 배치 DW 변환 파이프라인 (dbt Transform)
+    ClickHouse 데이터 웨어하우스 상에 적재된 원천 landing 데이터를 dbt 모델(Bronze -> Silver -> Gold)로 실시간 가공하고 변환을 오케스트레이션합니다.
+    
+    * **실행 스케줄**: 15분 마이크로 배치 (`*/15 * * * *`)
+    * **주요 입력**: ClickHouse landing 스키마 (`default.stg_olist_*`)
+    * **주요 출력 및 자산(Asset)**: `clickhouse://default/mart_daily_sales_wide`
+    * **동작 상세**: Cosmos DbtTaskGroup을 사용하여 dbt 프로젝트를 동적으로 Airflow Task로 매핑해 순차적으로 모델을 빌드합니다.
+    """,
     schedule="*/15 * * * *",
     start_date=datetime(2026, 1, 1),
     catchup=False,
@@ -47,34 +57,3 @@ def batch_dw_transform():
     start_task() >> dbt_tasks >> end_task()
 
 batch_dw_transform()
-
-
-# [DAG 2] 데이터가 갱신되었을 때만 유기적으로 반응하는 이벤트 기반 다운스트림 (Data-Aware)
-@dag(
-    dag_id="reactive_stock_alert_pipeline",
-    schedule=[CLICKHOUSE_ORDER_GOLD_ASSET],
-    start_date=datetime(2026, 1, 1),
-    catchup=False,
-    tags=["ecommerce", "alert"]
-)
-def reactive_stock_alert():
-
-    @task(task_id="detect_low_stock_and_notify")
-    def check_stock_leak():
-        from airflow.hooks.base import BaseHook
-        hook = BaseHook.get_hook("clickhouse_desktop")
-        sql = """
-            -- 품목별 최근 누적 주문량을 집계하여 재고 경보 대상 탐색 (Olist 스펙에 맞춰 수정)
-            SELECT product_id, count(order_item_id) AS total_ordered 
-            FROM default.fact_orders FINAL
-            GROUP BY product_id
-            ORDER BY total_ordered DESC
-            LIMIT 10;
-        """
-        records = hook.get_records(sql)
-        for row in records:
-            print(f"Product ID: {row[0]}, Cumulative Quantity Ordered: {row[1]}")
-            
-    check_stock_leak()
-
-reactive_stock_alert()
