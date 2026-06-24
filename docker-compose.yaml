@@ -51,14 +51,18 @@ x-airflow-common:
   # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
   # image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.2.2}
   build: .
+  networks:
+    - ecommerce-data-network
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
     &airflow-common-env
+    CLICKHOUSE_HOST: ecommerce-clickhouse
+    NEO4J_URI: bolt://neo4j-graph-rag:7687
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@airflow-postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
@@ -88,12 +92,15 @@ x-airflow-common:
     &airflow-common-depends-on
     redis:
       condition: service_healthy
-    postgres:
+    airflow-postgres:
       condition: service_healthy
 
 services:
-  postgres:
+  airflow-postgres:
     image: postgres:16
+    container_name: airflow-postgres
+    networks:
+      - ecommerce-data-network
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -111,6 +118,9 @@ services:
     # Redis is limited to 7.2-bookworm due to licencing change
     # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
     image: redis:7.2-bookworm
+    container_name: redis
+    networks:
+      - ecommerce-data-network
     expose:
       - 6379
     healthcheck:
@@ -335,5 +345,24 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
+  neo4j:
+    image: neo4j:5.12.0
+    container_name: neo4j-graph-rag
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    networks:
+      - ecommerce-data-network
+    environment:
+      - NEO4J_AUTH=neo4j/password
+    restart: always
+    volumes:
+      - neo4j-data:/data
+
 volumes:
   postgres-db-volume:
+  neo4j-data:
+
+networks:
+  ecommerce-data-network:
+    external: true

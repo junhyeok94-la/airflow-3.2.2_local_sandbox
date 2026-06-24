@@ -24,6 +24,9 @@ RUN pip install --no-cache-dir \
     dbt-core~=1.10.0 \
     dbt-clickhouse~=1.10.0 \
     clickhouse-connect \
-    astronomer-cosmos
+    astronomer-cosmos \
+    neo4j \
+    langchain-community \
+    langchain-openai
 
 WORKDIR /opt/airflow
